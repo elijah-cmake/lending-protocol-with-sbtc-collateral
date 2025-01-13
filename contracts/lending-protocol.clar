@@ -41,3 +41,30 @@
 (define-constant err-not-liquidatable (err u105))
 (define-constant err-invalid-amount (err u106))
 (define-constant err-transfer-failed (err u107))
+
+;; Liquidation threshold (150%)
+(define-constant liquidation-threshold u150)
+;; Minimum collateral ratio (200%)
+(define-constant min-collateral-ratio u200)
+;; Interest rate base (5% APR)
+(define-constant interest-rate-base u50000) ;; 5.0000%
+
+;; Data Maps
+(define-map user-deposits
+    principal
+    {
+        sbtc-balance: uint,
+        borrowed-amount: uint,
+        last-interest-update: uint
+    }
+)
+
+(define-map protocol-state
+    {version: (string-ascii 10)}
+    {
+        total-deposits: uint,
+        total-borrows: uint,
+        cumulative-interest-rate: uint,
+        last-update-block: uint
+    }
+)
