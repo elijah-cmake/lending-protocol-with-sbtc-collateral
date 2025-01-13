@@ -180,3 +180,83 @@
         (ok true)
     )
 )
+
+;; Withdraw collateral
+(define-public (withdraw-collateral (sbtc-contract <sip-010-trait>) (amount uint))
+    (let (
+        (user-data (unwrap! (map-get? user-deposits tx-sender) err-unauthorized))
+    )
+        (asserts! (not (var-get protocol-paused)) err-unauthorized)
+        (asserts! (> amount u0) err-invalid-amount)
+        (asserts! (>= (get sbtc-balance user-data) amount) err-insufficient-balance)
+        (asserts! (is-eq (contract-of sbtc-contract) (unwrap! (var-get sbtc-token) err-unauthorized))
+            err-unauthorized)
+        
+        ;; Check collateral ratio after withdrawal
+        (let (
+            (new-collateral (* (- (get sbtc-balance user-data) amount) u100))
+            (current-borrow (get borrowed-amount user-data))
+        )
+            (asserts! (or
+                (is-eq current-borrow u0)
+                (>= (/ new-collateral current-borrow) min-collateral-ratio)
+            ) err-insufficient-collateral)
+            
+            ;; Transfer sBTC back to user
+            (try! (as-contract (contract-call? sbtc-contract transfer
+                amount
+                (as-contract tx-sender)
+                tx-sender
+                none)))
+            
+            ;; Update user deposits
+            (map-set user-deposits
+                tx-sender
+                (merge user-data {
+                    sbtc-balance: (- (get sbtc-balance user-data) amount)
+                })
+            )
+            
+            (ok true)
+        )
+    )
+)
+
+;; Borrow against collateral
+(define-public (borrow (amount uint))
+    (let (
+        (user-data (unwrap! (map-get? user-deposits tx-sender) err-insufficient-collateral))
+        (current-collateral (* (get sbtc-balance user-data) u100))
+    )
+        (asserts! (not (var-get protocol-paused)) err-unauthorized)
+        (asserts! (> amount u0) err-invalid-amount)
+        
+        ;; Update interest before new borrow
+        (try! (update-user-interest tx-sender))
+        
+        ;; Check if borrow would maintain minimum collateral ratio
+        (asserts! (>= (/ current-collateral (+ amount (get borrowed-amount user-data))) min-collateral-ratio)
+            err-insufficient-collateral)
+        
+        ;; Update user borrows
+        (map-set user-deposits
+            tx-sender
+            (merge user-data {
+                borrowed-amount: (+ (get borrowed-amount user-data) amount),
+                last-interest-update: block-height
+            })
+        )
+        
+        ;; Update protocol state
+        (let ((protocol-data (unwrap! (map-get? protocol-state {version: "1.0.0"}) err-unauthorized)))
+            (map-set protocol-state
+                {version: "1.0.0"}
+                (merge protocol-data {
+                    total-borrows: (+ (get total-borrows protocol-data) amount)
+                })
+            )
+        )
+        
+        (ok true)
+    )
+)
