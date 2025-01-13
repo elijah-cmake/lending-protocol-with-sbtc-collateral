@@ -260,3 +260,109 @@
         (ok true)
     )
 )
+
+;; Repay borrowed amount
+(define-public (repay (sbtc-contract <sip-010-trait>) (amount uint))
+    (let (
+        (user-data (unwrap! (map-get? user-deposits tx-sender) err-unauthorized))
+    )
+        (asserts! (not (var-get protocol-paused)) err-unauthorized)
+        (asserts! (> amount u0) err-invalid-amount)
+        (asserts! (is-eq (contract-of sbtc-contract) (unwrap! (var-get sbtc-token) err-unauthorized))
+            err-unauthorized)
+        
+        ;; Update interest before repayment
+        (try! (update-user-interest tx-sender))
+        
+        ;; Ensure user has sufficient borrowed amount to repay
+        (asserts! (>= (get borrowed-amount user-data) amount) err-invalid-amount)
+        
+        ;; Transfer sBTC from user to contract for repayment
+        (try! (contract-call? sbtc-contract transfer
+            amount
+            tx-sender
+            (as-contract tx-sender)
+            none))
+        
+        ;; Update user deposits
+        (map-set user-deposits
+            tx-sender
+            (merge user-data {
+                borrowed-amount: (- (get borrowed-amount user-data) amount),
+                last-interest-update: block-height
+            })
+        )
+        
+        ;; Update protocol state
+        (let ((protocol-data (unwrap! (map-get? protocol-state {version: "1.0.0"}) err-unauthorized)))
+            (map-set protocol-state
+                {version: "1.0.0"}
+                (merge protocol-data {
+                    total-borrows: (- (get total-borrows protocol-data) amount)
+                })
+            )
+        )
+        
+        (ok true)
+    )
+)
+
+;; Liquidate undercollateralized position
+(define-public (liquidate (sbtc-contract <sip-010-trait>) (user principal))
+    (let (
+        (user-data (unwrap! (map-get? user-deposits user) err-unauthorized))
+        (liquidator-data (default-to {sbtc-balance: u0, borrowed-amount: u0, last-interest-update: block-height}
+            (map-get? user-deposits tx-sender)))
+    )
+        (asserts! (not (var-get protocol-paused)) err-unauthorized)
+        (asserts! (is-eq (contract-of sbtc-contract) (unwrap! (var-get sbtc-token) err-unauthorized))
+            err-unauthorized)
+        
+        ;; Update interest before liquidation
+        (try! (update-user-interest user))
+        
+        ;; Check if position is liquidatable
+        (let ((collateral-ratio (unwrap! (get-collateral-ratio user) err-unauthorized)))
+            (asserts! (< collateral-ratio liquidation-threshold) err-not-liquidatable)
+            
+            ;; Transfer collateral to liquidator with bonus
+            (let (
+                (liquidation-bonus (/ (get sbtc-balance user-data) u10)) ;; 10% bonus
+                (collateral-to-liquidator (+ (get sbtc-balance user-data) liquidation-bonus))
+            )
+                ;; Transfer debt amount in sBTC from liquidator to contract
+                (try! (contract-call? sbtc-contract transfer
+                    (get borrowed-amount user-data)
+                    tx-sender
+                    (as-contract tx-sender)
+                    none))
+                
+                ;; Transfer collateral to liquidator
+                (try! (as-contract (contract-call? sbtc-contract transfer
+                    collateral-to-liquidator
+                    (as-contract tx-sender)
+                    tx-sender
+                    none)))
+                
+                ;; Update liquidator balance
+                (map-set user-deposits
+                    tx-sender
+                    (merge liquidator-data {
+                        sbtc-balance: (+ (get sbtc-balance liquidator-data) collateral-to-liquidator)
+                    })
+                )
+                
+                ;; Clear user position
+                (map-set user-deposits
+                    user
+                    (merge user-data {
+                        sbtc-balance: u0,
+                        borrowed-amount: u0
+                    })
+                )
+                
+                (ok true)
+            )
+        )
+    )
+)
