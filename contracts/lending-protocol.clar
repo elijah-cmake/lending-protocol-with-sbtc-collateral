@@ -42,6 +42,9 @@
 (define-constant err-invalid-amount (err u106))
 (define-constant err-transfer-failed (err u107))
 
+;; Add allowed sBTC contract principal constant
+(define-constant allowed-sbtc-contract 'SP000000000000000000002Q6VF78.sbtc)
+
 ;; Liquidation threshold (150%)
 (define-constant liquidation-threshold u150)
 ;; Minimum collateral ratio (200%)
@@ -116,6 +119,10 @@
     )
 )
 
+(define-private (is-valid-sbtc-contract (contract principal))
+    (is-eq contract allowed-sbtc-contract)
+)
+
 ;; Public Functions
 
 ;; Initialize protocol state and set sBTC token contract
@@ -124,8 +131,11 @@
         (asserts! (is-eq tx-sender contract-owner) err-owner-only)
         (asserts! (is-none (map-get? protocol-state {version: "1.0.0"})) err-already-initialized)
         
-        ;; Set sBTC contract
-        (var-set sbtc-token (some (contract-of sbtc-contract)))
+        ;; Verify the contract principal matches allowed sBTC contract
+        (asserts! (is-eq (contract-of sbtc-contract) allowed-sbtc-contract) err-unauthorized)
+        
+        ;; Set sBTC contract after validation
+        (var-set sbtc-token (some allowed-sbtc-contract))
         
         (map-set protocol-state
             {version: "1.0.0"}
@@ -151,6 +161,7 @@
         (asserts! (is-some (var-get sbtc-token)) err-unauthorized)
         (asserts! (is-eq (contract-of sbtc-contract) (unwrap! (var-get sbtc-token) err-unauthorized))
             err-unauthorized)
+        (asserts! (is-valid-sbtc-contract (contract-of sbtc-contract)) err-unauthorized)
         
         ;; Transfer sBTC to contract
         (try! (contract-call? sbtc-contract transfer 
