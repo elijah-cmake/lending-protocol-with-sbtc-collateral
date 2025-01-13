@@ -115,3 +115,68 @@
         (ok updated-borrow-amount)
     )
 )
+
+;; Public Functions
+
+;; Initialize protocol state and set sBTC token contract
+(define-public (initialize (sbtc-contract <sip-010-trait>))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (is-none (map-get? protocol-state {version: "1.0.0"})) err-already-initialized)
+        
+        ;; Set sBTC contract
+        (var-set sbtc-token (some (contract-of sbtc-contract)))
+        
+        (map-set protocol-state
+            {version: "1.0.0"}
+            {
+                total-deposits: u0,
+                total-borrows: u0,
+                cumulative-interest-rate: interest-rate-base,
+                last-update-block: block-height
+            }
+        )
+        (ok true)
+    )
+)
+
+;; Deposit sBTC as collateral
+(define-public (deposit-collateral (sbtc-contract <sip-010-trait>) (amount uint))
+    (let (
+        (current-deposit (default-to {sbtc-balance: u0, borrowed-amount: u0, last-interest-update: block-height}
+            (map-get? user-deposits tx-sender)))
+    )
+        (asserts! (not (var-get protocol-paused)) err-unauthorized)
+        (asserts! (> amount u0) err-invalid-amount)
+        (asserts! (is-some (var-get sbtc-token)) err-unauthorized)
+        (asserts! (is-eq (contract-of sbtc-contract) (unwrap! (var-get sbtc-token) err-unauthorized))
+            err-unauthorized)
+        
+        ;; Transfer sBTC to contract
+        (try! (contract-call? sbtc-contract transfer 
+            amount 
+            tx-sender 
+            (as-contract tx-sender) 
+            none))
+        
+        ;; Update user deposits
+        (map-set user-deposits
+            tx-sender
+            (merge current-deposit {
+                sbtc-balance: (+ (get sbtc-balance current-deposit) amount)
+            })
+        )
+        
+        ;; Update protocol state
+        (let ((protocol-data (unwrap! (map-get? protocol-state {version: "1.0.0"}) err-unauthorized)))
+            (map-set protocol-state
+                {version: "1.0.0"}
+                (merge protocol-data {
+                    total-deposits: (+ (get total-deposits protocol-data) amount)
+                })
+            )
+        )
+        
+        (ok true)
+    )
+)
