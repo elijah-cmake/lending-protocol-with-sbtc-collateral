@@ -97,3 +97,21 @@
         )
     )
 )
+
+(define-private (update-user-interest (user principal))
+    (let (
+        (user-data (unwrap! (map-get? user-deposits user) (err u0)))
+        (current-block block-height)
+        (blocks-passed (- current-block (get last-interest-update user-data)))
+        (updated-borrow-amount (calculate-interest (get borrowed-amount user-data) blocks-passed))
+    )
+        (map-set user-deposits
+            user
+            (merge user-data {
+                borrowed-amount: updated-borrow-amount,
+                last-interest-update: current-block
+            })
+        )
+        (ok updated-borrow-amount)
+    )
+)
