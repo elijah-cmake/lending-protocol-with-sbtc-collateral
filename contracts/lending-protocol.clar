@@ -68,3 +68,32 @@
         last-update-block: uint
     }
 )
+
+;; Data Variables
+(define-data-var protocol-paused bool false)
+(define-data-var interest-rate uint interest-rate-base)
+(define-data-var sbtc-token (optional principal) none)
+
+;; Private Functions
+
+(define-private (calculate-interest (amount uint) (blocks uint))
+    (let (
+        (interest-per-block (/ (var-get interest-rate) u525600)) ;; Assuming 1 block per minute
+        (interest-multiplier (+ u100000000 (* interest-per-block blocks)))
+    )
+        (/ (* amount interest-multiplier) u100000000)
+    )
+)
+
+(define-private (get-collateral-ratio (user principal))
+    (let (
+        (user-data (unwrap! (map-get? user-deposits user) (err u0)))
+        (sbtc-value (* (get sbtc-balance user-data) u100))
+        (borrowed (get borrowed-amount user-data))
+    )
+        (if (is-eq borrowed u0)
+            (ok u0)
+            (ok (/ sbtc-value borrowed))
+        )
+    )
+)
