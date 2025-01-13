@@ -390,6 +390,11 @@
 (define-public (set-interest-rate (new-rate uint))
     (begin
         (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        ;; Add validation for interest rate
+        (asserts! (and 
+            (>= new-rate u0)
+            (<= new-rate u1000000)) ;; Max 100% APR (1,000,000 basis points)
+            err-invalid-amount)
         (var-set interest-rate new-rate)
         (ok true)
     )
