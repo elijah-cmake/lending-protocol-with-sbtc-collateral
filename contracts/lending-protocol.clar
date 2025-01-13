@@ -366,3 +366,39 @@
         )
     )
 )
+
+;; Read-only functions
+
+(define-read-only (get-user-position (user principal))
+    (map-get? user-deposits user)
+)
+
+(define-read-only (get-protocol-metrics)
+    (map-get? protocol-state {version: "1.0.0"})
+)
+
+(define-read-only (get-current-interest-rate)
+    (var-get interest-rate)
+)
+
+(define-read-only (get-sbtc-token)
+    (var-get sbtc-token)
+)
+
+;; Admin functions
+
+(define-public (set-interest-rate (new-rate uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set interest-rate new-rate)
+        (ok true)
+    )
+)
+
+(define-public (toggle-protocol-pause)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set protocol-paused (not (var-get protocol-paused)))
+        (ok true)
+    )
+)
